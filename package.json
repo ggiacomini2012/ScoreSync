@@ -43,8 +43,10 @@
     "embla-carousel-react": "^8.6.0",
     "firebase": "^11.9.1",
     "genkit": "^1.14.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.475.0",
     "next": "15.3.3",
+    "opensheetmusicdisplay": "1.9.4",
     "patch-package": "^8.0.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
@@ -53,6 +55,7 @@
     "recharts": "^2.15.1",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
+    "tone": "^15.0.4",
     "zod": "^3.24.2"
   },
   "devDependencies": {
