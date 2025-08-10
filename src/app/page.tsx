@@ -75,8 +75,11 @@ export default function ScoreSyncPage() {
             osmd.cursor.hide();
             let time = 0;
             
-            while(!osmd.cursor.isAtEnd) {
-                const notes = osmd.cursor.NotesUnderCursor();
+            const cursor = osmd.cursor;
+            cursor.reset();
+
+            while(!cursor.isAtEnd) {
+                const notes = cursor.NotesUnderCursor();
                 if (notes.length > 0 && notes[0].Pitch) {
                     const duration = notes[0].Length.RealValue * 1.8;
                     const pitches = notes.flatMap(n => n.Pitch ? `${n.Pitch.FundamentalNote}${n.Pitch.Accidental ?? ''}${n.Pitch.Octave}` : []);
@@ -87,7 +90,7 @@ export default function ScoreSyncPage() {
                         }, time);
                     }
                     
-                    const currentIterator = osmd.cursor.iterator.clone();
+                    const currentIterator = cursor.iterator.clone();
                     Tone.Transport.scheduleOnce(t => {
                         Tone.Draw.schedule(() => {
                             osmd.cursor.iterator = currentIterator;
@@ -97,7 +100,7 @@ export default function ScoreSyncPage() {
 
                     time += duration;
                 }
-                osmd.cursor.next();
+                cursor.next();
             }
 
             Tone.Transport.scheduleOnce(t => {
@@ -122,13 +125,14 @@ export default function ScoreSyncPage() {
         if (!osmd || !file) return;
 
         stopPlayback();
+        setIsLoading(true);
         setFileLoaded(false);
         setIsPlayerReady(false);
         setScoreTitle('');
-        setIsLoading(true);
         setLoadingMessage('Starting file processing...');
-
+        
         try {
+            await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
             setLoadingMessage('Unpacking MXL file...');
             const zip = await JSZip.loadAsync(file);
 
@@ -140,7 +144,7 @@ export default function ScoreSyncPage() {
             setLoadingMessage('Reading score data...');
             const xmlContent = await xmlFile.async('string');
 
-            setLoadingMessage('Loading score...');
+            setLoadingMessage('Loading score into engine...');
             await osmd.load(xmlContent);
 
             setLoadingMessage('Rendering sheet music...');
@@ -167,8 +171,12 @@ export default function ScoreSyncPage() {
     const togglePlay = useCallback(async () => {
         if (!isPlayerReady) return;
         if (Tone.context.state !== 'running') await Tone.start();
-        if (isPlaying) Tone.Transport.pause();
-        else Tone.Transport.start();
+        
+        if (isPlaying) {
+            Tone.Transport.pause();
+        } else {
+            Tone.Transport.start();
+        }
         setIsPlaying(!isPlaying);
     }, [isPlayerReady, isPlaying]);
 
@@ -179,7 +187,7 @@ export default function ScoreSyncPage() {
         e.preventDefault();
         e.stopPropagation();
         setIsDragging(false);
-        if (e.dataTransfer.files?.[0]) {
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
             const file = e.dataTransfer.files[0];
             if (file.name.endsWith('.mxl')) {
                 handleFileUpload(file);
@@ -190,13 +198,23 @@ export default function ScoreSyncPage() {
     }, [handleFileUpload, toast]);
 
     const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0]) {
+        if (e.target.files && e.target.files[0]) {
             handleFileUpload(e.target.files[0]);
         }
-        e.target.value = ''; // Reset for re-uploading same file
+        if (e.target) e.target.value = ''; 
     };
 
     const triggerFileSelect = () => fileInputRef.current?.click();
+
+    const resetState = () => {
+        stopPlayback();
+        setFileLoaded(false);
+        setIsLoading(false);
+        setScoreTitle('');
+        setIsPlaying(false);
+        setIsPlayerReady(false);
+        osmd?.clear();
+    }
 
     return (
         <div className="flex flex-col items-center min-h-screen bg-background text-foreground p-4 md:p-6 font-body">
@@ -264,7 +282,9 @@ export default function ScoreSyncPage() {
             </main>
              <footer className="w-full text-center mt-6">
                 <p className="text-sm text-muted-foreground">Made with <span className="text-red-500">♥</span> and modern web technologies.</p>
-                <Button variant="link" size="sm" onClick={() => { setFileLoaded(false); setIsLoading(false); setScoreTitle(''); setIsPlaying(false); setIsPlayerReady(false); if (osmd) { osmd.clear(); stopPlayback(); } }} className={cn(!fileLoaded && "invisible")}>Upload another file</Button>
+                <Button variant="link" size="sm" onClick={resetState} className={cn(!fileLoaded && !isLoading && "invisible")}>
+                    Upload another file
+                </Button>
             </footer>
         </div>
     );
