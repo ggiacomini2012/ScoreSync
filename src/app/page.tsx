@@ -119,11 +119,11 @@ export default function ScoreSyncPage() {
     const handleFileUpload = useCallback(async (file: File) => {
         if (!osmd || !file) return;
 
-        setIsLoading(true);
+        stopPlayback();
         setFileLoaded(false);
         setIsPlayerReady(false);
         setScoreTitle('');
-        stopPlayback();
+        setIsLoading(true);
 
         try {
             const zip = await JSZip.loadAsync(file);
@@ -136,13 +136,15 @@ export default function ScoreSyncPage() {
             await osmd.load(xmlContent);
             await new Promise(resolve => setTimeout(resolve, 0)); // Yield to allow UI update
             await osmd.render();
-
+            
             setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
+            
+            setupPlayback();
             setFileLoaded(true);
 
-            setupPlayback();
         } catch (error) {
             console.error("Error processing MXL file:", error);
+            setFileLoaded(false);
             toast({
                 variant: "destructive",
                 title: "Error loading file",
