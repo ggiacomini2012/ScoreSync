@@ -15,6 +15,7 @@ export default function ScoreSyncPage() {
     const [osmd, setOsmd] = useState<OpenSheetMusicDisplay | null>(null);
     const [scoreTitle, setScoreTitle] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [loadingMessage, setLoadingMessage] = useState<string>('');
     const [isPlayerReady, setIsPlayerReady] = useState<boolean>(false);
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
     const [fileLoaded, setFileLoaded] = useState<boolean>(false);
@@ -63,6 +64,7 @@ export default function ScoreSyncPage() {
         if (!osmd) return;
 
         try {
+            setLoadingMessage('Preparing audio playback...');
             const synth = new Tone.PolySynth(Tone.Synth, {
                 envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 1 },
             }).toDestination();
@@ -124,18 +126,25 @@ export default function ScoreSyncPage() {
         setIsPlayerReady(false);
         setScoreTitle('');
         setIsLoading(true);
+        setLoadingMessage('Starting file processing...');
     
-        // Give the UI a moment to update to the loading state
         setTimeout(async () => {
             try {
+                setLoadingMessage('Unpacking MXL file...');
                 const zip = await JSZip.loadAsync(file);
+
+                setLoadingMessage('Finding MusicXML data...');
                 const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
     
                 if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
     
+                setLoadingMessage('Reading score data...');
                 const xmlContent = await xmlFile.async('string');
     
+                setLoadingMessage('Loading score...');
                 await osmd.load(xmlContent);
+
+                setLoadingMessage('Rendering sheet music...');
                 await osmd.render();
     
                 setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
@@ -152,8 +161,9 @@ export default function ScoreSyncPage() {
                 });
             } finally {
                 setIsLoading(false);
+                setLoadingMessage('');
             }
-        }, 100); // A small delay to ensure the loading spinner shows up
+        }, 100);
     }, [osmd, toast, setupPlayback, stopPlayback]);
     
     const togglePlay = useCallback(async () => {
@@ -168,16 +178,23 @@ export default function ScoreSyncPage() {
     const handleDragLeave = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
     const handleDragOver = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
     const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
-        e.preventDefault(); e.stopPropagation(); setIsDragging(false);
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
         if (e.dataTransfer.files?.[0]) {
             const file = e.dataTransfer.files[0];
-            if (file.name.endsWith('.mxl')) handleFileUpload(file);
-            else toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .mxl file." });
+            if (file.name.endsWith('.mxl')) {
+                handleFileUpload(file);
+            } else {
+                toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .mxl file." });
+            }
         }
     }, [handleFileUpload, toast]);
 
     const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+        if (e.target.files?.[0]) {
+            handleFileUpload(e.target.files[0]);
+        }
         e.target.value = ''; // Reset for re-uploading same file
     };
 
@@ -192,7 +209,7 @@ export default function ScoreSyncPage() {
 
             <main className="w-full max-w-7xl flex-grow flex flex-col items-center justify-center">
                 {!fileLoaded && !isLoading && (
-                    <div
+                     <div
                         onClick={triggerFileSelect}
                         onDrop={handleDrop}
                         onDragOver={handleDragOver}
@@ -219,7 +236,7 @@ export default function ScoreSyncPage() {
                 {isLoading && (
                     <div className="flex flex-col items-center justify-center text-center">
                         <Loader2 className="w-16 h-16 animate-spin text-primary mb-4" />
-                        <p className="text-xl">Loading your score...</p>
+                        <p className="text-xl">{loadingMessage || 'Loading your score...'}</p>
                     </div>
                 )}
                 
