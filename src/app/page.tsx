@@ -181,13 +181,7 @@ export default function ScoreSyncPage() {
     const triggerFileSelect = () => fileInputRef.current?.click();
 
     return (
-        <div 
-            className="flex flex-col items-center min-h-screen bg-background text-foreground p-4 md:p-6 font-body"
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-        >
+        <div className="flex flex-col items-center min-h-screen bg-background text-foreground p-4 md:p-6 font-body">
             <header className="w-full max-w-7xl text-center mb-6">
                 <h1 className="text-4xl md:text-5xl font-headline font-bold text-primary">ScoreSync</h1>
                 <p className="text-muted-foreground mt-2">Upload, visualize, and listen to your sheet music.</p>
@@ -197,6 +191,10 @@ export default function ScoreSyncPage() {
                 {!fileLoaded && !isLoading && (
                     <div
                         onClick={triggerFileSelect}
+                        onDrop={handleDrop}
+                        onDragOver={handleDragOver}
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
                         className={cn(
                             "w-full max-w-2xl h-80 rounded-lg border-2 border-dashed flex flex-col items-center justify-center text-center p-8 transition-all duration-300 cursor-pointer hover:border-accent hover:bg-white/5",
                             isDragging && 'border-accent ring-2 ring-accent bg-accent/10'
