@@ -3,8 +3,8 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'Calculator App',
-  description: 'A simple calculator built with Next.js and Tailwind CSS.',
+  title: 'ScoreSync',
+  description: 'A simple app to read and play music scores.',
 };
 
 export default function RootLayout({
