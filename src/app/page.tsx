@@ -118,41 +118,42 @@ export default function ScoreSyncPage() {
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!osmd || !file) return;
-
+    
         stopPlayback();
         setFileLoaded(false);
         setIsPlayerReady(false);
         setScoreTitle('');
         setIsLoading(true);
-
-        try {
-            const zip = await JSZip.loadAsync(file);
-            const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
-            
-            if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
-
-            const xmlContent = await xmlFile.async('string');
-            
-            await osmd.load(xmlContent);
-            await new Promise(resolve => setTimeout(resolve, 0)); // Yield to allow UI update
-            await osmd.render();
-            
-            setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
-            
-            setupPlayback();
-            setFileLoaded(true);
-
-        } catch (error) {
-            console.error("Error processing MXL file:", error);
-            setFileLoaded(false);
-            toast({
-                variant: "destructive",
-                title: "Error loading file",
-                description: error instanceof Error ? error.message : "An unknown error occurred.",
-            });
-        } finally {
-            setIsLoading(false);
-        }
+    
+        // Give the UI a moment to update to the loading state
+        setTimeout(async () => {
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
+    
+                if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
+    
+                const xmlContent = await xmlFile.async('string');
+    
+                await osmd.load(xmlContent);
+                await osmd.render();
+    
+                setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
+                setupPlayback();
+                setFileLoaded(true);
+    
+            } catch (error) {
+                console.error("Error processing MXL file:", error);
+                setFileLoaded(false);
+                toast({
+                    variant: "destructive",
+                    title: "Error loading file",
+                    description: error instanceof Error ? error.message : "An unknown error occurred.",
+                });
+            } finally {
+                setIsLoading(false);
+            }
+        }, 100); // A small delay to ensure the loading spinner shows up
     }, [osmd, toast, setupPlayback, stopPlayback]);
     
     const togglePlay = useCallback(async () => {
