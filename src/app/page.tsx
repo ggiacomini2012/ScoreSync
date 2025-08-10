@@ -120,50 +120,48 @@ export default function ScoreSyncPage() {
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!osmd || !file) return;
-    
+
         stopPlayback();
         setFileLoaded(false);
         setIsPlayerReady(false);
         setScoreTitle('');
         setIsLoading(true);
         setLoadingMessage('Starting file processing...');
-    
-        setTimeout(async () => {
-            try {
-                setLoadingMessage('Unpacking MXL file...');
-                const zip = await JSZip.loadAsync(file);
 
-                setLoadingMessage('Finding MusicXML data...');
-                const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
-    
-                if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
-    
-                setLoadingMessage('Reading score data...');
-                const xmlContent = await xmlFile.async('string');
-    
-                setLoadingMessage('Loading score...');
-                await osmd.load(xmlContent);
+        try {
+            setLoadingMessage('Unpacking MXL file...');
+            const zip = await JSZip.loadAsync(file);
 
-                setLoadingMessage('Rendering sheet music...');
-                await osmd.render();
-    
-                setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
-                setupPlayback();
-                setFileLoaded(true);
-    
-            } catch (error) {
-                console.error("Error processing MXL file:", error);
-                setFileLoaded(false);
-                toast({
-                    variant: "destructive",
-                    title: "Error loading file",
-                    description: error instanceof Error ? error.message : "An unknown error occurred.",
-                });
-            } finally {
-                setIsLoading(false);
-                setLoadingMessage('');
-            }
-        }, 100);
+            setLoadingMessage('Finding MusicXML data...');
+            const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
+
+            if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
+
+            setLoadingMessage('Reading score data...');
+            const xmlContent = await xmlFile.async('string');
+
+            setLoadingMessage('Loading score...');
+            await osmd.load(xmlContent);
+
+            setLoadingMessage('Rendering sheet music...');
+            osmd.render();
+
+            setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
+            setupPlayback();
+            setFileLoaded(true);
+
+        } catch (error) {
+            console.error("Error processing MXL file:", error);
+            setFileLoaded(false);
+            toast({
+                variant: "destructive",
+                title: "Error loading file",
+                description: error instanceof Error ? error.message : "An unknown error occurred.",
+            });
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+        }
     }, [osmd, toast, setupPlayback, stopPlayback]);
     
     const togglePlay = useCallback(async () => {
