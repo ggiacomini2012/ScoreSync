@@ -86,3 +86,7 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+.score-container svg {
+  background-color: azure;
+}

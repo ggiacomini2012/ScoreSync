@@ -101,6 +101,9 @@ export default function ScoreSyncPage() {
         autoResize: true,
         backend: 'svg',
         drawTitle: true,
+        drawingParameters: {
+          defaultColor: "#FFFFFF",
+        }
       });
       setOsmd(currentOsmd);
       
@@ -118,30 +121,49 @@ export default function ScoreSyncPage() {
 
       // Create Tone.js player
       setLoadingMessage('Setting up audio playback...');
-      const notes = currentOsmd.sheet.getAllVoiceEntries().flatMap(voiceEntry => 
-        voiceEntry.notes.map(note => ({
-          time: voiceEntry.sourceStamp.realValue,
-          pitch: Tone.Frequency(note.halfTone).toNote(),
-          duration: note.length.realValue,
-        }))
-      );
+      const notes: { time: number; pitch: string; duration: number }[] = [];
+      currentOsmd.sheet.Instruments.forEach(instrument => {
+        instrument.Voices.forEach(voice => {
+          voice.VoiceEntries.forEach(voiceEntry => {
+            if (voiceEntry.AbsoluteTimestamp) {
+                voiceEntry.Notes.forEach(note => {
+                    if (note.pitch) {
+                        notes.push({
+                            time: voiceEntry.AbsoluteTimestamp.RealValue,
+                            pitch: Tone.Frequency(note.pitch.halfTone).toNote(),
+                            duration: note.Length.RealValue,
+                        });
+                    }
+                });
+            }
+          });
+        });
+      });
       
       const synth = new Tone.Synth().toDestination();
       const part = new Tone.Part((time, value) => {
         synth.triggerAttackRelease(value.pitch, value.duration, time);
         
-        // This is a bit of a hack to sync the cursor. A more robust solution would be needed for complex scores.
         Tone.Draw.schedule(() => {
             if(cursorRef.current?.osmdCursor) {
                 const timestamp = new PointF2D(time, 0);
-                cursorRef.current.osmdCursor.iterator.currentTimeStamp = timestamp;
-                cursorRef.current.osmdCursor.update();
+                // This is a bit of a hack to sync the cursor. A more robust solution would be needed for complex scores.
+                // We're essentially jumping the cursor to the current note's time.
+                const voiceEntries = currentOsmd.sheet.Instruments[0].Voices[0].VoiceEntries;
+                for(const voiceEntry of voiceEntries) {
+                    if(voiceEntry.AbsoluteTimestamp.RealValue >= time) {
+                        cursorRef.current.osmdCursor.iterator = voiceEntry.Notes[0].getIterator();
+                        cursorRef.current.osmdCursor.update();
+                        break;
+                    }
+                }
             }
         }, time);
 
       }, notes).start(0);
 
-      const totalTime = currentOsmd.sheet.totalMeasures * currentOsmd.sheet.timeSignatures[0].numerator;
+      const lastNote = notes[notes.length - 1];
+      const totalTime = lastNote ? lastNote.time + lastNote.duration : 0;
       Tone.Transport.setLoopPoints(0, totalTime);
       Tone.Transport.loop = true;
       
@@ -267,7 +289,7 @@ export default function ScoreSyncPage() {
               </div>
             )}
 
-            <div ref={sheetContainerRef} className={osmd ? 'my-4' : 'hidden'} />
+            <div ref={sheetContainerRef} className={`score-container ${osmd ? 'my-4' : 'hidden'}`} />
             
             {osmd && !isLoading && (
                <div className="mt-4">
