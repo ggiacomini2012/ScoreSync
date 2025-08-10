@@ -1,291 +1,124 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, type ChangeEvent, type DragEvent } from 'react';
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import * as Tone from 'tone';
-import JSZip from 'jszip';
-import { Play, Pause, Square, UploadCloud, FileMusic, Loader2 } from 'lucide-react';
-
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
-export default function ScoreSyncPage() {
-    const [osmd, setOsmd] = useState<OpenSheetMusicDisplay | null>(null);
-    const [scoreTitle, setScoreTitle] = useState<string>('');
-    const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [loadingMessage, setLoadingMessage] = useState<string>('');
-    const [isPlayerReady, setIsPlayerReady] = useState<boolean>(false);
-    const [isPlaying, setIsPlaying] = useState<boolean>(false);
-    const [fileLoaded, setFileLoaded] = useState<boolean>(false);
-    const [isDragging, setIsDragging] = useState(false);
+export default function CalculatorPage() {
+  const [input, setInput] = useState('0');
+  const [previousInput, setPreviousInput] = useState<string | null>(null);
+  const [operator, setOperator] = useState<string | null>(null);
 
-    const scoreContainerRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const playerRef = useRef<{ synth: Tone.PolySynth } | null>(null);
-    const { toast } = useToast();
+  const handleNumberClick = (value: string) => {
+    if (input === '0' && value !== '.') {
+      setInput(value);
+    } else if (input.includes('.') && value === '.') {
+      return;
+    }
+    else {
+      setInput(input + value);
+    }
+  };
 
-    useEffect(() => {
-        if (scoreContainerRef.current && !osmd) {
-            const osmdInstance = new OpenSheetMusicDisplay(scoreContainerRef.current, {
-                autoResize: true,
-                backend: 'svg',
-                drawTitle: false,
-                followCursor: true,
-                cursorOptions: {
-                    type: 2,
-                    color: "hsl(var(--accent))",
-                    alpha: 0.6,
-                    follow: true,
-                }
-            });
-            setOsmd(osmdInstance);
-        }
-        return () => {
-             if (Tone.Transport.state !== 'stopped') {
-                Tone.Transport.stop();
-                Tone.Transport.cancel();
-            }
-            playerRef.current?.synth.dispose();
-        }
-    }, [osmd]);
+  const handleOperatorClick = (op: string) => {
+    if (previousInput !== null && operator) {
+      handleEquals();
+      setPreviousInput(input);
+    } else {
+      setPreviousInput(input);
+    }
+    setInput('0');
+    setOperator(op);
+  };
+  
+  const handleClear = () => {
+    setInput('0');
+    setPreviousInput(null);
+    setOperator(null);
+  };
 
-    const stopPlayback = useCallback(() => {
-        if (!isPlayerReady) return;
-        Tone.Transport.stop();
-        Tone.Transport.cancel();
-        osmd?.cursor.reset();
-        osmd?.cursor.hide();
-        setIsPlaying(false);
-    }, [isPlayerReady, osmd]);
+  const handleEquals = () => {
+    if (!operator || previousInput === null) return;
 
-    const setupPlayback = useCallback(() => {
-        if (!osmd) return;
+    const current = parseFloat(input);
+    const previous = parseFloat(previousInput);
+    let result: number;
 
-        try {
-            setLoadingMessage('Preparing audio playback...');
-            const synth = new Tone.PolySynth(Tone.Synth, {
-                envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 1 },
-            }).toDestination();
-            playerRef.current = { synth };
-
-            Tone.Transport.cancel();
-            osmd.cursor.reset();
-            osmd.cursor.hide();
-            let time = 0;
-            
-            const cursor = osmd.cursor;
-            cursor.reset();
-
-            while(!cursor.isAtEnd) {
-                const notes = cursor.NotesUnderCursor();
-                if (notes.length > 0 && notes[0].Pitch) {
-                    const duration = notes[0].Length.RealValue * 1.8;
-                    const pitches = notes.flatMap(n => n.Pitch ? `${n.Pitch.FundamentalNote}${n.Pitch.Accidental ?? ''}${n.Pitch.Octave}` : []);
-                    
-                    if (pitches.length > 0) {
-                        Tone.Transport.scheduleOnce(t => {
-                            playerRef.current?.synth.triggerAttackRelease(pitches, duration, t);
-                        }, time);
-                    }
-                    
-                    const currentIterator = cursor.iterator.clone();
-                    Tone.Transport.scheduleOnce(t => {
-                        Tone.Draw.schedule(() => {
-                            osmd.cursor.iterator = currentIterator;
-                            osmd.cursor.show();
-                        }, t);
-                    }, time);
-
-                    time += duration;
-                }
-                cursor.next();
-            }
-
-            Tone.Transport.scheduleOnce(t => {
-                Tone.Draw.schedule(() => stopPlayback(), t);
-            }, time);
-
-            osmd.cursor.reset();
-            osmd.cursor.hide();
-            setIsPlayerReady(true);
-        } catch(e) {
-            console.error("Error setting up playback:", e);
-            toast({
-                variant: "destructive",
-                title: "Playback Error",
-                description: "Could not prepare audio for this score.",
-            });
-            setIsPlayerReady(false);
-        }
-    }, [osmd, toast, stopPlayback]);
-
-    const handleFileUpload = useCallback(async (file: File) => {
-        if (!osmd || !file) return;
-
-        stopPlayback();
-        setIsLoading(true);
-        setFileLoaded(false);
-        setIsPlayerReady(false);
-        setScoreTitle('');
-        setLoadingMessage('Starting file processing...');
-        
-        try {
-            await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
-            setLoadingMessage('Unpacking MXL file...');
-            const zip = await JSZip.loadAsync(file);
-
-            setLoadingMessage('Finding MusicXML data...');
-            const xmlFile = Object.values(zip.files).find(f => (f.name.endsWith('.xml') || f.name.endsWith('.musicxml')) && !f.name.startsWith('META-INF/'));
-
-            if (!xmlFile) throw new Error("No MusicXML file found in the MXL container.");
-
-            setLoadingMessage('Reading score data...');
-            const xmlContent = await xmlFile.async('string');
-
-            setLoadingMessage('Loading score into engine...');
-            await osmd.load(xmlContent);
-
-            setLoadingMessage('Rendering sheet music...');
-            osmd.render();
-
-            setScoreTitle(osmd.sheet.TitleString || file.name.replace(/\.(mxl|xml|musicxml)$/, ''));
-            setupPlayback();
-            setFileLoaded(true);
-
-        } catch (error) {
-            console.error("Error processing MXL file:", error);
-            setFileLoaded(false);
-            toast({
-                variant: "destructive",
-                title: "Error loading file",
-                description: error instanceof Error ? error.message : "An unknown error occurred.",
-            });
-        } finally {
-            setIsLoading(false);
-            setLoadingMessage('');
-        }
-    }, [osmd, toast, setupPlayback, stopPlayback]);
-    
-    const togglePlay = useCallback(async () => {
-        if (!isPlayerReady) return;
-        if (Tone.context.state !== 'running') await Tone.start();
-        
-        if (isPlaying) {
-            Tone.Transport.pause();
-        } else {
-            Tone.Transport.start();
-        }
-        setIsPlaying(!isPlaying);
-    }, [isPlayerReady, isPlaying]);
-
-    const handleDragEnter = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
-    const handleDragLeave = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
-    const handleDragOver = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
-    const handleDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            const file = e.dataTransfer.files[0];
-            if (file.name.endsWith('.mxl')) {
-                handleFileUpload(file);
-            } else {
-                toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .mxl file." });
-            }
-        }
-    }, [handleFileUpload, toast]);
-
-    const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            handleFileUpload(e.target.files[0]);
-        }
-        if (e.target) e.target.value = ''; 
-    };
-
-    const triggerFileSelect = () => fileInputRef.current?.click();
-
-    const resetState = () => {
-        stopPlayback();
-        setFileLoaded(false);
-        setIsLoading(false);
-        setScoreTitle('');
-        setIsPlaying(false);
-        setIsPlayerReady(false);
-        osmd?.clear();
+    switch (operator) {
+      case '+':
+        result = previous + current;
+        break;
+      case '-':
+        result = previous - current;
+        break;
+      case '*':
+        result = previous * current;
+        break;
+      case '/':
+        result = previous / current;
+        break;
+      default:
+        return;
     }
 
-    return (
-        <div className="flex flex-col items-center min-h-screen bg-background text-foreground p-4 md:p-6 font-body">
-            <header className="w-full max-w-7xl text-center mb-6">
-                <h1 className="text-4xl md:text-5xl font-headline font-bold text-primary">ScoreSync</h1>
-                <p className="text-muted-foreground mt-2">Upload, visualize, and listen to your sheet music.</p>
-            </header>
+    setInput(String(result));
+    setPreviousInput(null);
+    setOperator(null);
+  };
 
-            <main className="w-full max-w-7xl flex-grow flex flex-col items-center justify-center">
-                {!fileLoaded && !isLoading && (
-                     <div
-                        onClick={triggerFileSelect}
-                        onDrop={handleDrop}
-                        onDragOver={handleDragOver}
-                        onDragEnter={handleDragEnter}
-                        onDragLeave={handleDragLeave}
-                        className={cn(
-                            "w-full max-w-2xl h-80 rounded-lg border-2 border-dashed flex flex-col items-center justify-center text-center p-8 transition-all duration-300 cursor-pointer hover:border-accent hover:bg-white/5",
-                            isDragging && 'border-accent ring-2 ring-accent bg-accent/10'
-                        )}
-                    >
-                        <UploadCloud className="w-16 h-16 text-muted-foreground mb-4" />
-                        <h2 className="text-2xl font-semibold">Drag & Drop your MXL file here</h2>
-                        <p className="text-muted-foreground mt-2">or click to browse</p>
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleFileSelect}
-                            accept=".mxl"
-                            className="hidden"
-                        />
-                    </div>
+  const buttons = [
+    '7', '8', '9', '/',
+    '4', '5', '6', '*',
+    '1', '2', '3', '-',
+    '0', '.', '=', '+'
+  ];
+
+  const handleButtonClick = (btn: string) => {
+    if (!isNaN(parseInt(btn, 10)) || btn === '.') {
+      handleNumberClick(btn);
+    } else if (['+', '-', '*', '/'].includes(btn)) {
+      handleOperatorClick(btn);
+    } else if (btn === '=') {
+      handleEquals();
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-4">
+      <Card className="w-full max-w-sm shadow-2xl">
+        <CardHeader>
+          <CardTitle>Calculator</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="bg-muted text-right p-4 rounded-lg mb-4 text-4xl font-mono break-all">
+            {input}
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <Button
+              className="col-span-4 text-xl"
+              variant="destructive"
+              onClick={handleClear}
+            >
+              C
+            </Button>
+            {buttons.map((btn) => (
+              <Button
+                key={btn}
+                className={cn(
+                  "text-2xl h-16",
+                  btn === '=' ? 'col-span-2' : '',
+                  ['/', '*', '-', '+'].includes(btn) ? 'bg-accent text-accent-foreground' : ''
                 )}
-                
-                {isLoading && (
-                    <div className="flex flex-col items-center justify-center text-center">
-                        <Loader2 className="w-16 h-16 animate-spin text-primary mb-4" />
-                        <p className="text-xl">{loadingMessage || 'Loading your score...'}</p>
-                    </div>
-                )}
-                
-                {fileLoaded && !isLoading && (
-                    <Card className="w-full h-full flex flex-col shadow-lg overflow-hidden" style={{minHeight: '60vh'}}>
-                        <CardHeader className="flex-row items-center justify-between bg-card-foreground/5 p-4 border-b">
-                            <div className="flex items-center gap-3">
-                                <FileMusic className="w-6 h-6 text-primary" />
-                                <CardDescription className="text-lg font-semibold text-foreground truncate">{scoreTitle}</CardDescription>
-                            </div>
-                            {isPlayerReady && (
-                                <div className="flex items-center gap-2">
-                                    <Button variant="ghost" size="icon" onClick={togglePlay} disabled={!isPlayerReady}>
-                                        {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={stopPlayback} disabled={!isPlayerReady}>
-                                        <Square className="w-6 h-6" />
-                                    </Button>
-                                </div>
-                            )}
-                        </CardHeader>
-                        <CardContent className="flex-grow p-2 md:p-4 bg-white relative">
-                            <div ref={scoreContainerRef} className="w-full h-full min-h-[50vh] [&_svg]:max-w-none" />
-                        </CardContent>
-                    </Card>
-                )}
-            </main>
-             <footer className="w-full text-center mt-6">
-                <p className="text-sm text-muted-foreground">Made with <span className="text-red-500">♥</span> and modern web technologies.</p>
-                <Button variant="link" size="sm" onClick={resetState} className={cn(!fileLoaded && !isLoading && "invisible")}>
-                    Upload another file
-                </Button>
-            </footer>
-        </div>
-    );
+                variant="outline"
+                onClick={() => handleButtonClick(btn)}
+              >
+                {btn}
+              </Button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
