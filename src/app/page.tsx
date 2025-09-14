@@ -5,12 +5,15 @@ import { OpenSheetMusicDisplay, PointF2D } from 'opensheetmusicdisplay';
 import * as Tone from 'tone';
 import JSZip from 'jszip';
 import { Play, Pause, Square, UploadCloud, FileMusic, Loader2 } from 'lucide-react';
+import { Piano } from '@tonejs/piano';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
+import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
 
 // Vexflow registers a service worker which can cause issues in some environments.
 // We can disable it here.
@@ -34,11 +37,14 @@ export default function ScoreSyncPage() {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [isPianoLoaded, setIsPianoLoaded] = useState(false);
+  const [tempo, setTempo] = useState(120);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [foregroundColor, setForegroundColor] = useState('black');
 
   const sheetContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const playerRef = useRef<{ transport: typeof Tone.Transport, part: Tone.Part } | null>(null);
+  const playerRef = useRef<{ transport: typeof Tone.Transport, part: Tone.Part, piano: Piano } | null>(null);
   const cursorRef = useRef<{ osmdCursor: any, currentPlayheadPosition: number } | null>(null);
 
   const cleanup = useCallback(() => {
@@ -47,6 +53,9 @@ export default function ScoreSyncPage() {
       playerRef.current.transport.stop();
       playerRef.current.transport.cancel();
       playerRef.current.part.dispose();
+      if (playerRef.current.piano?.loaded) {
+          playerRef.current.piano.dispose();
+      }
       playerRef.current = null;
     }
     if (osmd) {
@@ -102,7 +111,7 @@ export default function ScoreSyncPage() {
         backend: 'svg',
         drawTitle: true,
         drawingParameters: {
-          defaultColor: "#FFFFFF",
+          defaultColor: foregroundColor,
         }
       });
       setOsmd(currentOsmd);
@@ -139,35 +148,29 @@ export default function ScoreSyncPage() {
           });
         });
       });
-      
-      const synth = new Tone.Synth().toDestination();
-      const part = new Tone.Part((time, value) => {
-        synth.triggerAttackRelease(value.pitch, value.duration, time);
-        
-        Tone.Draw.schedule(() => {
-            if(cursorRef.current?.osmdCursor) {
-                const timestamp = new PointF2D(time, 0);
-                // This is a bit of a hack to sync the cursor. A more robust solution would be needed for complex scores.
-                // We're essentially jumping the cursor to the current note's time.
-                const voiceEntries = currentOsmd.sheet.Instruments[0].Voices[0].VoiceEntries;
-                for(const voiceEntry of voiceEntries) {
-                    if(voiceEntry.AbsoluteTimestamp.RealValue >= time) {
-                        cursorRef.current.osmdCursor.iterator = voiceEntry.Notes[0].getIterator();
-                        cursorRef.current.osmdCursor.update();
-                        break;
-                    }
-                }
-            }
-        }, time);
 
+      setLoadingMessage('Loading piano samples...');
+      const piano = new Piano({
+        velocities: 4,
+      }).toDestination();
+      
+      await piano.load();
+
+      setIsPianoLoaded(true);
+      setLoadingMessage('Preparing playback...');
+
+      const part = new Tone.Part((time, value) => {
+        piano.keyDown({ note: value.pitch, time, velocity: 0.9 });
+        piano.keyUp({ note: value.pitch, time: time + value.duration * 0.9 });
       }, notes).start(0);
 
       const lastNote = notes[notes.length - 1];
       const totalTime = lastNote ? lastNote.time + lastNote.duration : 0;
       Tone.Transport.setLoopPoints(0, totalTime);
       Tone.Transport.loop = true;
+      Tone.Transport.bpm.value = tempo;
       
-      playerRef.current = { transport: Tone.Transport, part };
+      playerRef.current = { transport: Tone.Transport, part, piano };
 
       setLoadingMessage('');
 
@@ -230,28 +233,74 @@ export default function ScoreSyncPage() {
   const triggerFileSelect = () => {
     fileInputRef.current?.click();
   };
+
+  useEffect(() => {
+    // On component mount, get the foreground color from the CSS variables.
+    const color = getComputedStyle(document.documentElement).getPropertyValue('--foreground');
+    // The color is in HSL format 'h s% l%', we need to convert it to 'hsl(h, s%, l%)'
+    if (color) {
+        const hslColor = `hsl(${color.replace(/ /g, ', ')})`;
+        setForegroundColor(hslColor);
+    }
+  }, []);
   
   useEffect(() => {
     let animationFrameId: number;
+    const cursor = cursorRef.current?.osmdCursor;
 
-    const updateProgress = () => {
-        if (isPlaying && playerRef.current && osmd) {
-            const progressValue = (playerRef.current.transport.progress * 100);
-            setProgress(progressValue);
+    const updateProgressAndCursor = () => {
+      if (isPlaying && playerRef.current && osmd && cursor) {
+        // Update progress bar
+        const progressValue = playerRef.current.transport.progress * 100;
+        setProgress(progressValue);
+
+        // Smooth cursor update
+        if (!cursor.iterator.EndReached) {
+            const currentTime = playerRef.current.transport.seconds;
+            const nextNoteTimestamp = cursor.iterator.CurrentSourceTimestamp;
+
+            if (nextNoteTimestamp && currentTime >= nextNoteTimestamp.RealValue) {
+                cursor.next();
+            }
         }
-        animationFrameId = requestAnimationFrame(updateProgress);
+
+      }
+      animationFrameId = requestAnimationFrame(updateProgressAndCursor);
     };
 
     if (isPlaying) {
-        animationFrameId = requestAnimationFrame(updateProgress);
+      if (cursor) {
+        cursor.show();
+      }
+      animationFrameId = requestAnimationFrame(updateProgressAndCursor);
     } else {
-        setProgress(0);
+      setProgress(0);
+      if (cursor) {
+        cursor.hide();
+        cursor.reset();
+      }
     }
 
+    const transport = playerRef.current?.transport;
+    const loopCallback = () => {
+        if (cursor) {
+            cursor.reset();
+        }
+    }
+    transport?.on('loop', loopCallback);
+
+
     return () => {
-        cancelAnimationFrame(animationFrameId);
+      cancelAnimationFrame(animationFrameId);
+      transport?.off('loop', loopCallback);
     };
   }, [isPlaying, osmd]);
+
+  useEffect(() => {
+    if (playerRef.current) {
+        playerRef.current.transport.bpm.value = tempo;
+    }
+  }, [tempo]);
 
   return (
     <>
@@ -294,15 +343,27 @@ export default function ScoreSyncPage() {
             {osmd && !isLoading && (
                <div className="mt-4">
                   <div className="flex items-center gap-4">
-                    <Button onClick={togglePlay} disabled={!osmd}>
+                    <Button onClick={togglePlay} disabled={!osmd || !isPianoLoaded}>
                       {isPlaying ? <Pause /> : <Play />}
                       <span className="ml-2">{isPlaying ? 'Pause' : 'Play'}</span>
                     </Button>
-                    <Button onClick={stopPlayback} disabled={!osmd || !isPlaying} variant="outline">
+                    <Button onClick={stopPlayback} disabled={!osmd || !isPlaying || !isPianoLoaded} variant="outline">
                       <Square />
                       <span className="ml-2">Stop</span>
                     </Button>
                     <Progress value={progress} className="w-full" />
+                 </div>
+                 <div className="grid gap-2 mt-4">
+                    <Label htmlFor="tempo">Tempo: {tempo} BPM</Label>
+                    <Slider
+                        id="tempo"
+                        min={30}
+                        max={300}
+                        step={1}
+                        value={[tempo]}
+                        onValueChange={(value) => setTempo(value[0])}
+                        disabled={!osmd || !isPianoLoaded}
+                    />
                  </div>
                  <div className="mt-4 flex justify-center">
                     <Button onClick={triggerFileSelect} variant="secondary">

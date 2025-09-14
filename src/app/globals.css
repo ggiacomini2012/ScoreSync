@@ -87,6 +87,7 @@ body {
   }
 }
 
+/* The container itself will have the correct background from the theme. */
 .score-container svg {
-  background-color: azure;
+  background-color: transparent;
 }
